@@ -1,0 +1,25 @@
+server:
+  port: 8080 
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/maturidade_db  
+    username: postgres       
+    password: 123 
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update 
+    show-sql: true     # Mostra os comandos SQL no terminal para acompanharmos os logs
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+security:
+  jwt:
+    # Em produção, defina JWT_SECRET como variável de ambiente com ao menos 32 bytes.
+    secret: ${JWT_SECRET:ChaveDesenvolvimentoJWTComMaisDe32Bytes_AltereEmProducao!}
+    # TTL configurável em milissegundos. Padrão: 24 horas.
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+
