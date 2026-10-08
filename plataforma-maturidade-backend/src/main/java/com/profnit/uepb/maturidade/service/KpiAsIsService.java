@@ -151,6 +151,21 @@ public class KpiAsIsService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe o motivo da priorização.");
         }
 
+        // Consistência do período opcional da amostra
+        if ((request.getDataInicioAmostra() == null) != (request.getDataFimAmostra() == null)) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Informe as duas datas do período da amostra ou deixe ambas em branco."
+            );
+        }
+        if (request.getDataInicioAmostra() != null && request.getDataFimAmostra() != null
+                && request.getDataFimAmostra().isBefore(request.getDataInicioAmostra())) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "A Data Fim da amostra não pode ser anterior à Data Início da amostra."
+            );
+        }
+
         // Integridade das Amostras: Exigir N >= 1
         if (request.getCasos() == null || request.getCasos().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A tabela de amostras deve possuir ao menos 1 caso (N ≥ 1).");
@@ -174,6 +189,14 @@ public class KpiAsIsService {
                 throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "No caso " + caso.getIdentificadorCaso() + ", a Data Fim não pode ser menor do que a Data Início."
+                );
+            }
+            if (request.getDataInicioAmostra() != null && request.getDataFimAmostra() != null
+                    && (caso.getDataInicio().isBefore(request.getDataInicioAmostra())
+                        || caso.getDataFim().isAfter(request.getDataFimAmostra()))) {
+                throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "No caso " + caso.getIdentificadorCaso() + ", as datas devem permanecer dentro do período da amostra."
                 );
             }
             // Valores Não Negativos: Tempo Total >= 0

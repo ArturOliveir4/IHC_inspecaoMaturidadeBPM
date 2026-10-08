@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 
 const roleLabels = {
@@ -32,10 +32,20 @@ const navItems = [
 export const AppLayout = ({ children }) => {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  const location = useLocation();
   const perfil = user?.perfil;
   const visibleItems = navItems.filter((item) => !item.roles || item.roles.includes(perfil));
 
+  const confirmarSaidaComAlteracoes = () => {
+    const planoSujo = sessionStorage.getItem('@MaturidadeBPM:plano-governanca:alteracoes-nao-salvas') === 'true';
+    if (!planoSujo || location.pathname !== '/gestor/plano-governanca') return true;
+    const confirmar = window.confirm('Existem alterações não salvas no Plano de Governança. Deseja sair e descartá-las?');
+    if (confirmar) sessionStorage.removeItem('@MaturidadeBPM:plano-governanca:alteracoes-nao-salvas');
+    return confirmar;
+  };
+
   const handleLogout = () => {
+    if (!confirmarSaidaComAlteracoes()) return;
     logout();
     navigate('/login', { replace: true });
   };
@@ -57,6 +67,7 @@ export const AppLayout = ({ children }) => {
               key={item.to}
               to={item.to}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+              onClick={(event) => { if (item.to !== location.pathname && !confirmarSaidaComAlteracoes()) event.preventDefault(); }}
             >
               <span aria-hidden="true">{item.icon}</span>
               <span>{item.label}</span>

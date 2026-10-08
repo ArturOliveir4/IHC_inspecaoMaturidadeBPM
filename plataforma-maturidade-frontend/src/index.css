@@ -397,6 +397,57 @@ h4 {
   box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.10);
 }
 
+
+/* ISO 9241-17 — padrões compartilhados de formulários */
+.required-mark {
+  color: var(--danger);
+  font-weight: 800;
+  margin-left: 3px;
+}
+
+.required-legend {
+  margin: 0 0 14px;
+  color: var(--muted-strong);
+  font-size: 12px;
+}
+
+.form-guidance {
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.field-help {
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.input:disabled,
+.select:disabled,
+.textarea:disabled {
+  background: #eef2f7;
+  border-color: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.table-header-help {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-strong);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid var(--border);
@@ -674,4 +725,111 @@ h4 {
 
 .login-demo-text {
   margin-top: 8px;
+}
+
+
+/* ISO 9241-17 — Lote 2: estados, erros contextuais e campos longos */
+.field-loaded-control {
+  background: #eff6ff !important;
+  border-color: #93c5fd !important;
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.field-state-hint {
+  display: inline-block;
+  margin-top: 5px;
+  font-size: 0.78rem;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.field-error {
+  display: block;
+  margin-top: 5px;
+  color: #b91c1c;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.input-error,
+.select.input-error,
+.textarea.input-error {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.10);
+}
+
+.long-text-control {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.loaded-values-note {
+  margin-top: 8px;
+  padding: 8px 10px;
+  color: #1e3a8a;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
+.loaded-values-note strong {
+  color: #1d4ed8;
+}
+
+
+/* ISO 9241-17 — Lote 3: navegação entre seções e proteção de alterações */
+.section-jump-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 18px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+}
+
+.section-jump-label {
+  margin-right: 2px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.section-jump-link {
+  padding: 7px 10px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.section-jump-link:hover {
+  background: #dbeafe;
+}
+
+.section-jump-link:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.section-anchor-target {
+  scroll-margin-top: 18px;
+}
+
+.unsaved-indicator {
+  align-self: center;
+  padding: 6px 9px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
 }

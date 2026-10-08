@@ -25,6 +25,8 @@ export const AlertasAcompanhamento = () => {
   const [editandoId, setEditandoId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState({ tipo: '', msg: '' });
+  const [erros, setErros] = useState({});
+  const [camposAlterados, setCamposAlterados] = useState({});
 
   // Carrega a lista de processos disponíveis para vincular o alerta (CA1).
   useEffect(() => {
@@ -32,9 +34,6 @@ export const AlertasAcompanhamento = () => {
       try {
         const dados = await processoService.listarTodos();
         setProcessos(dados);
-        if (dados.length > 0) {
-          setProcessoId(String(dados[0].id));
-        }
       } catch (err) {
         setFeedback({ tipo: 'danger', msg: 'Não foi possível carregar a lista de processos.' });
       }
@@ -61,15 +60,39 @@ export const AlertasAcompanhamento = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processoId]);
 
-  const handleChange = (campo, valor) => setForm((prev) => ({ ...prev, [campo]: valor }));
+  const mensagemServidor = (error, fallback) => error.response?.data?.error || error.response?.data?.message || fallback;
+
+  const validarCampo = (campo, valor = form[campo]) => {
+    if (campo === 'processoId') return processoId ? '' : 'Selecione o processo ao qual o alerta será vinculado.';
+    if (campo === 'titulo') return String(valor || '').trim() ? '' : 'Informe um título para o alerta.';
+    if (campo === 'dataReferencia') return valor ? '' : 'Informe a data de referência.';
+    if (campo === 'gatilho') return String(valor || '').trim() ? '' : 'Descreva a ação ou revisão que deverá ser realizada.';
+    return '';
+  };
+
+  const atualizarErroCampo = (campo, valor) => {
+    const mensagem = validarCampo(campo, valor);
+    setErros((prev) => ({ ...prev, [campo]: mensagem }));
+    return mensagem;
+  };
+
+  const handleChange = (campo, valor) => {
+    setForm((prev) => ({ ...prev, [campo]: valor }));
+    setCamposAlterados((prev) => ({ ...prev, [campo]: true }));
+    if (erros[campo]) atualizarErroCampo(campo, valor);
+  };
 
   const limparFormulario = () => {
     setForm(FORM_INICIAL);
     setEditandoId(null);
+    setErros({});
+    setCamposAlterados({});
   };
 
   const iniciarEdicao = (alerta) => {
     setEditandoId(alerta.id);
+    setErros({});
+    setCamposAlterados({});
     setForm({
       titulo: alerta.titulo,
       periodicidade: alerta.periodicidade,
@@ -81,10 +104,20 @@ export const AlertasAcompanhamento = () => {
 
   const salvarAlerta = async (event) => {
     event.preventDefault();
-    if (!processoId) {
-      setFeedback({ tipo: 'danger', msg: 'Selecione um processo antes de salvar o alerta.' });
+    const novosErros = {
+      processoId: validarCampo('processoId'),
+      titulo: validarCampo('titulo'),
+      dataReferencia: validarCampo('dataReferencia'),
+      gatilho: validarCampo('gatilho'),
+    };
+    setErros(novosErros);
+    const primeiroErro = Object.entries(novosErros).find(([, mensagem]) => mensagem);
+    if (primeiroErro) {
+      document.getElementById(primeiroErro[0])?.focus();
+      setFeedback({ tipo: 'danger', msg: 'Revise os campos destacados antes de salvar o alerta.' });
       return;
     }
+
     setFeedback({ tipo: '', msg: '' });
     try {
       setLoading(true);
@@ -99,7 +132,12 @@ export const AlertasAcompanhamento = () => {
       limparFormulario();
       await carregarAlertas();
     } catch (error) {
-      const mensagemErro = error.response?.data?.error || 'Erro ao salvar o alerta de acompanhamento.';
+      const mensagemErro = mensagemServidor(error, 'Erro ao salvar o alerta de acompanhamento.');
+      const mensagemNormalizada = mensagemErro.toLowerCase();
+      if (mensagemNormalizada.includes('título')) setErros((prev) => ({ ...prev, titulo: mensagemErro }));
+      else if (mensagemNormalizada.includes('gatilho')) setErros((prev) => ({ ...prev, gatilho: mensagemErro }));
+      else if (mensagemNormalizada.includes('data de referência')) setErros((prev) => ({ ...prev, dataReferencia: mensagemErro }));
+      else if (mensagemNormalizada.includes('processo')) setErros((prev) => ({ ...prev, processoId: mensagemErro }));
       setFeedback({ tipo: 'danger', msg: mensagemErro });
     } finally {
       setLoading(false);
@@ -119,7 +157,7 @@ export const AlertasAcompanhamento = () => {
       }
       await carregarAlertas();
     } catch (error) {
-      const mensagemErro = error.response?.data?.error || 'Erro ao excluir o alerta.';
+      const mensagemErro = mensagemServidor(error, 'Erro ao excluir o alerta.');
       setFeedback({ tipo: 'danger', msg: mensagemErro });
     } finally {
       setLoading(false);
@@ -155,16 +193,30 @@ export const AlertasAcompanhamento = () => {
       <section className="grid grid-2">
         <article className="card card-pad">
           <h2 className="card-title">{editandoId ? 'Editar alerta' : 'Novo alerta de acompanhamento'}</h2>
+          <div className="form-guidance">
+            Configure o lembrete e escolha a data de referência. <strong>Campos marcados com * são obrigatórios.</strong>
+            {editandoId ? ' Use “Atualizar alerta” para gravar as mudanças ou “Cancelar edição” para descartá-las.' : ' Use “Salvar alerta” para criar o registro.'}
+          </div>
+          {editandoId && (
+            <div className="loaded-values-note">
+              <strong>Valores carregados:</strong> campos com fundo azul vieram do alerta salvo; o destaque desaparece quando o valor é alterado.
+            </div>
+          )}
 
           <form onSubmit={salvarAlerta} style={{ marginTop: 10 }}>
             <div className="form-grid">
               <div className="field">
-                <label className="label" htmlFor="processoId">Processo</label>
+                <label className="label" htmlFor="processoId">Processo<span className="required-mark" aria-hidden="true">*</span></label>
                 <select
                   id="processoId"
-                  className="select"
+                  className={`select ${erros.processoId ? 'input-error' : ''}`}
+                  autoFocus
+                  aria-required="true"
+                  aria-invalid={Boolean(erros.processoId)}
+                  aria-describedby={erros.processoId ? 'erro-processoId' : undefined}
                   value={processoId}
-                  onChange={(e) => setProcessoId(e.target.value)}
+                  onChange={(e) => { setProcessoId(e.target.value); setErros((prev) => ({ ...prev, processoId: '' })); }}
+                  onBlur={() => atualizarErroCampo('processoId', processoId)}
                   required
                 >
                   <option value="" disabled>Selecione um processo</option>
@@ -172,25 +224,33 @@ export const AlertasAcompanhamento = () => {
                     <option key={processo.id} value={processo.id}>{processo.nome}</option>
                   ))}
                 </select>
+                {erros.processoId && <span id="erro-processoId" className="field-error">{erros.processoId}</span>}
               </div>
 
               <div className="field">
-                <label className="label" htmlFor="titulo">Título do alerta</label>
-                <input
+                <label className="label" htmlFor="titulo">Título do alerta<span className="required-mark" aria-hidden="true">*</span></label>
+                <textarea
                   id="titulo"
-                  className="input"
-                  placeholder="Ex.: Revisão do mapeamento AS-IS"
+                  className={`textarea long-text-control ${editandoId && !camposAlterados.titulo ? 'field-loaded-control' : ''} ${erros.titulo ? 'input-error' : ''}`}
+                  aria-required="true"
+                  aria-invalid={Boolean(erros.titulo)}
+                  aria-describedby={erros.titulo ? 'erro-titulo' : undefined}
+                  placeholder="Ex.: Revisão semestral dos indicadores de desempenho do processo"
                   value={form.titulo}
                   onChange={(e) => handleChange('titulo', e.target.value)}
+                  onBlur={(e) => atualizarErroCampo('titulo', e.target.value)}
+                  rows={2}
                   required
                 />
+                {editandoId && !camposAlterados.titulo && <span className="field-state-hint">Valor carregado do alerta salvo</span>}
+                {erros.titulo && <span id="erro-titulo" className="field-error">{erros.titulo}</span>}
               </div>
 
               <div className="field">
                 <label className="label" htmlFor="periodicidade">Periodicidade</label>
                 <select
                   id="periodicidade"
-                  className="select"
+                  className={`select ${editandoId && !camposAlterados.periodicidade ? 'field-loaded-control' : ''}`}
                   value={form.periodicidade}
                   onChange={(e) => handleChange('periodicidade', e.target.value)}
                 >
@@ -198,44 +258,60 @@ export const AlertasAcompanhamento = () => {
                     <option key={opcao.value} value={opcao.value}>{opcao.label}</option>
                   ))}
                 </select>
+                {!editandoId && !camposAlterados.periodicidade && <span className="field-state-hint">Valor padrão: Mensal</span>}
+                {editandoId && !camposAlterados.periodicidade && <span className="field-state-hint">Valor carregado do alerta salvo</span>}
               </div>
 
               <div className="field">
-                <label className="label" htmlFor="dataReferencia">Data de referência</label>
+                <label className="label" htmlFor="dataReferencia">Data de referência<span className="required-mark" aria-hidden="true">*</span></label>
                 <input
                   id="dataReferencia"
-                  className="input"
+                  className={`input ${editandoId && !camposAlterados.dataReferencia ? 'field-loaded-control' : ''} ${erros.dataReferencia ? 'input-error' : ''}`}
+                  aria-required="true"
+                  aria-invalid={Boolean(erros.dataReferencia)}
+                  aria-describedby={erros.dataReferencia ? 'erro-dataReferencia' : undefined}
                   type="date"
                   value={form.dataReferencia}
                   onChange={(e) => handleChange('dataReferencia', e.target.value)}
+                  onBlur={(e) => atualizarErroCampo('dataReferencia', e.target.value)}
                   required
                 />
+                {editandoId && !camposAlterados.dataReferencia && <span className="field-state-hint">Valor carregado do alerta salvo</span>}
+                {erros.dataReferencia && <span id="erro-dataReferencia" className="field-error">{erros.dataReferencia}</span>}
               </div>
 
               <div className="field" style={{ gridColumn: '1 / -1' }}>
-                <label className="label" htmlFor="gatilho">Gatilho / ação pendente</label>
+                <label className="label" htmlFor="gatilho">Gatilho / ação pendente<span className="required-mark" aria-hidden="true">*</span></label>
                 <textarea
                   id="gatilho"
-                  className="textarea"
+                  className={`textarea ${editandoId && !camposAlterados.gatilho ? 'field-loaded-control' : ''} ${erros.gatilho ? 'input-error' : ''}`}
+                  aria-required="true"
+                  aria-invalid={Boolean(erros.gatilho)}
+                  aria-describedby={erros.gatilho ? 'erro-gatilho' : undefined}
                   placeholder="Descreva o que deve ser revisado ou executado nesta data (ex.: revalidar KPIs TO-BE com o setor responsável)."
                   value={form.gatilho}
                   onChange={(e) => handleChange('gatilho', e.target.value)}
-                  rows={3}
+                  onBlur={(e) => atualizarErroCampo('gatilho', e.target.value)}
+                  rows={4}
                   required
                 />
+                {editandoId && !camposAlterados.gatilho && <span className="field-state-hint">Valor carregado do alerta salvo</span>}
+                {erros.gatilho && <span id="erro-gatilho" className="field-error">{erros.gatilho}</span>}
               </div>
 
               <div className="field">
                 <label className="label" htmlFor="ativo">Status</label>
                 <select
                   id="ativo"
-                  className="select"
+                  className={`select ${editandoId && !camposAlterados.ativo ? 'field-loaded-control' : ''}`}
                   value={form.ativo ? 'true' : 'false'}
                   onChange={(e) => handleChange('ativo', e.target.value === 'true')}
                 >
                   <option value="true">Ativo</option>
                   <option value="false">Inativo</option>
                 </select>
+                {!editandoId && !camposAlterados.ativo && <span className="field-state-hint">Valor padrão: Ativo</span>}
+                {editandoId && !camposAlterados.ativo && <span className="field-state-hint">Valor carregado do alerta salvo</span>}
               </div>
             </div>
 

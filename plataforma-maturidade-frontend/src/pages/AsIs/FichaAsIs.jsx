@@ -30,15 +30,20 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
 
   const [indicadorId, setIndicadorId] = useState(null);
   const [feedback, setFeedback] = useState(null);
+  const [erros, setErros] = useState({});
+  const [camposAlterados, setCamposAlterados] = useState({});
   const [carregando, setCarregando] = useState(false);
+  const [rascunhoRestaurado, setRascunhoRestaurado] = useState(false);
   const restauracaoAutomaticaRealizada = useRef(false);
 
   useEffect(() => { carregarProcessos(); }, []);
 
   useEffect(() => {
     if (visao !== 'FICHA' || !processoSelecionado) return;
+    const deveManterRascunho = Object.keys(camposAlterados).length > 0 || rascunhoRestaurado;
+    if (!deveManterRascunho) return;
     localStorage.setItem(CHAVE_RASCUNHO_ASIS, JSON.stringify({ processoId: processoSelecionado.id, cicloAvaliacaoId, setorResponsavel, dataMedicao, responsavelAnalise, motivoPriorizacao, unidadeTmc, dataInicioAmostra, dataFimAmostra, notaAgilidade, notaClareza, casos, indicadorId, atualizadoEm: Date.now() }));
-  }, [visao, processoSelecionado, cicloAvaliacaoId, setorResponsavel, dataMedicao, responsavelAnalise, motivoPriorizacao, unidadeTmc, dataInicioAmostra, dataFimAmostra, notaAgilidade, notaClareza, casos, indicadorId]);
+  }, [visao, processoSelecionado, cicloAvaliacaoId, setorResponsavel, dataMedicao, responsavelAnalise, motivoPriorizacao, unidadeTmc, dataInicioAmostra, dataFimAmostra, notaAgilidade, notaClareza, casos, indicadorId, camposAlterados, rascunhoRestaurado]);
 
   const carregarProcessos = async () => {
     try {
@@ -82,6 +87,9 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
     setProcessoSelecionado(processo);
     setVisao('FICHA');
     setFeedback(null);
+    setErros({});
+    setCamposAlterados({});
+    setRascunhoRestaurado(false);
     setIndicadorId(null);
     setDiagramaAtual(null);
     setUploadValidado(false); 
@@ -137,6 +145,7 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
             setDataInicioAmostra(r.dataInicioAmostra ?? ''); setDataFimAmostra(r.dataFimAmostra ?? '');
             setNotaAgilidade(r.notaAgilidade ?? 3); setNotaClareza(r.notaClareza ?? 3);
             if (Array.isArray(r.casos) && r.casos.length) setCasos(r.casos);
+            setRascunhoRestaurado(true);
             setFeedback({ tipo: 'info', texto: 'Rascunho restaurado automaticamente.' });
           }
         } catch {}
@@ -243,6 +252,7 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
   const adicionarCaso = () => {
     const proximoId = String(casos.length + 1).padStart(2, '0');
     setCasos([...casos, { identificadorCaso: proximoId, dataInicio: new Date().toISOString().split('T')[0], dataFim: new Date().toISOString().split('T')[0], tempoTotal: 1, houveRetrabalho: false, observacao: '' }]);
+    marcarAlterado('estruturaCasos');
   };
 
   const removerCaso = (index) => {
@@ -251,19 +261,109 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
       return;
     }
     setCasos(casos.filter((_, i) => i !== index));
+    marcarAlterado('estruturaCasos');
+  };
+
+  const marcarAlterado = (campo) => setCamposAlterados((prev) => ({ ...prev, [campo]: true }));
+
+  const possuiAlteracoes = Object.keys(camposAlterados).length > 0 || rascunhoRestaurado;
+
+  const irParaSecao = (id) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const descartarAlteracoesFicha = async () => {
+    if (!processoSelecionado) return;
+    if (possuiAlteracoes && !window.confirm('Descartar as alterações atuais e restaurar os dados salvos da Ficha AS-IS?')) return;
+    localStorage.removeItem(CHAVE_RASCUNHO_ASIS);
+    setCamposAlterados({});
+    setRascunhoRestaurado(false);
+    await selecionarProcesso(processoSelecionado, false);
+    setFeedback({ tipo: 'info', texto: indicadorId ? 'Alterações descartadas. A ficha salva foi restaurada.' : 'Alterações descartadas. O formulário foi reiniciado.' });
   };
 
   const atualizarCaso = (index, campo, valor) => {
     const novaLista = [...casos];
     novaLista[index] = { ...novaLista[index], [campo]: valor };
     setCasos(novaLista);
+    marcarAlterado(`caso-${index}-${campo}`);
+    if (erros[`caso-${index}-${campo}`]) {
+      setErros((prev) => ({ ...prev, [`caso-${index}-${campo}`]: '' }));
+    }
+  };
+
+  const validarCasoCampo = (index, campo) => {
+    const caso = casos[index];
+    if (!caso) return;
+    let mensagem = '';
+    if (campo === 'identificadorCaso' && !String(caso.identificadorCaso || '').trim()) mensagem = 'Informe o ID do caso.';
+    if (campo === 'dataInicio') {
+      if (!caso.dataInicio) mensagem = 'Informe a Data Início.';
+      else if (dataInicioAmostra && dataFimAmostra && (caso.dataInicio < dataInicioAmostra || (caso.dataFim && caso.dataFim > dataFimAmostra))) mensagem = 'As datas do caso devem permanecer dentro do período da amostra.';
+    }
+    if (campo === 'dataFim') {
+      if (!caso.dataFim) mensagem = 'Informe a Data Fim.';
+      else if (caso.dataInicio && caso.dataFim < caso.dataInicio) mensagem = 'A Data Fim não pode ser anterior à Data Início.';
+      else if (dataInicioAmostra && dataFimAmostra && (caso.dataInicio < dataInicioAmostra || caso.dataFim > dataFimAmostra)) mensagem = 'As datas do caso devem permanecer dentro do período da amostra.';
+    }
+    if (campo === 'tempoTotal' && (caso.tempoTotal === '' || caso.tempoTotal === null || Number(caso.tempoTotal) < 0)) mensagem = 'Informe um tempo maior ou igual a zero.';
+    setErros((prev) => ({ ...prev, [`caso-${index}-${campo}`]: mensagem }));
+  };
+
+  const validarPeriodoAmostra = () => {
+    const novos = {};
+    if ((dataInicioAmostra && !dataFimAmostra) || (!dataInicioAmostra && dataFimAmostra)) {
+      if (!dataInicioAmostra) novos.dataInicioAmostra = 'Informe o início do período ou deixe as duas datas em branco.';
+      if (!dataFimAmostra) novos.dataFimAmostra = 'Informe o fim do período ou deixe as duas datas em branco.';
+    }
+    if (dataInicioAmostra && dataFimAmostra && dataFimAmostra < dataInicioAmostra) {
+      novos.dataFimAmostra = 'A Data Fim da amostra não pode ser anterior à Data Início.';
+    }
+    setErros((prev) => ({ ...prev, dataInicioAmostra: novos.dataInicioAmostra || '', dataFimAmostra: novos.dataFimAmostra || '' }));
+  };
+
+  const validarFicha = () => {
+    const novosErros = {};
+    if (!setorResponsavel.trim()) novosErros.setorResponsavel = 'Informe o setor responsável.';
+    if (!dataMedicao) novosErros.dataMedicao = 'Informe a data da medição.';
+    if (!responsavelAnalise.trim()) novosErros.responsavelAnalise = 'Informe o responsável pela análise.';
+
+    if ((dataInicioAmostra && !dataFimAmostra) || (!dataInicioAmostra && dataFimAmostra)) {
+      if (!dataInicioAmostra) novosErros.dataInicioAmostra = 'Informe o início do período ou deixe as duas datas da amostra em branco.';
+      if (!dataFimAmostra) novosErros.dataFimAmostra = 'Informe o fim do período ou deixe as duas datas da amostra em branco.';
+    }
+    if (dataInicioAmostra && dataFimAmostra && dataFimAmostra < dataInicioAmostra) {
+      novosErros.dataFimAmostra = 'A Data Fim da amostra não pode ser anterior à Data Início.';
+    }
+
+    casos.forEach((caso, index) => {
+      if (!String(caso.identificadorCaso || '').trim()) novosErros[`caso-${index}-identificadorCaso`] = 'Informe o ID do caso.';
+      if (!caso.dataInicio) novosErros[`caso-${index}-dataInicio`] = 'Informe a Data Início.';
+      if (!caso.dataFim) novosErros[`caso-${index}-dataFim`] = 'Informe a Data Fim.';
+      if (caso.dataInicio && caso.dataFim && caso.dataFim < caso.dataInicio) {
+        novosErros[`caso-${index}-dataFim`] = 'A Data Fim não pode ser anterior à Data Início.';
+      }
+      if (caso.tempoTotal === '' || caso.tempoTotal === null || Number(caso.tempoTotal) < 0) {
+        novosErros[`caso-${index}-tempoTotal`] = 'Informe um tempo maior ou igual a zero.';
+      }
+      if (dataInicioAmostra && dataFimAmostra && caso.dataInicio && caso.dataFim) {
+        if (caso.dataInicio < dataInicioAmostra || caso.dataFim > dataFimAmostra) {
+          novosErros[`caso-${index}-dataInicio`] = 'As datas do caso devem permanecer dentro do período da amostra.';
+        }
+      }
+    });
+    return novosErros;
   };
 
   const handleSubmitFicha = async (e) => {
     e.preventDefault();
     setFeedback(null);
-    if (!responsavelAnalise.trim()) {
-      setFeedback({ tipo: 'danger', texto: 'Informe o responsável pela análise.' });
+    const novosErros = validarFicha();
+    setErros(novosErros);
+    if (Object.keys(novosErros).length > 0) {
+      setFeedback({ tipo: 'danger', texto: 'Revise os campos destacados antes de salvar a Ficha AS-IS.' });
+      const primeiroCampo = document.querySelector('.input-error');
+      primeiroCampo?.focus();
       return;
     }
     const payload = { cicloAvaliacaoId, setorResponsavel, dataMedicao, responsavelAnalise, motivoPriorizacao, dataInicioAmostra, dataFimAmostra, unidadeTmc, notaAgilidade: Number(notaAgilidade), notaClareza: Number(notaClareza), casos };
@@ -278,8 +378,21 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
         setFeedback({ tipo: 'success', texto: 'Ficha AS-IS cadastrada com sucesso!' });
       }
       localStorage.removeItem(CHAVE_RASCUNHO_ASIS);
+      setCamposAlterados({});
+      setRascunhoRestaurado(false);
     } catch (err) {
-      setFeedback({ tipo: 'danger', texto: err.response?.data?.message || 'Erro ao salvar Ficha AS-IS.' });
+      const mensagemErro = err.response?.data?.error || err.response?.data?.message || 'Erro ao salvar Ficha AS-IS.';
+      const normalizada = mensagemErro.toLowerCase();
+      const novos = {};
+      if (normalizada.includes('responsável pela análise')) novos.responsavelAnalise = mensagemErro;
+      if (normalizada.includes('data fim') && normalizada.includes('amostra')) novos.dataFimAmostra = mensagemErro;
+      const casoEncontrado = casos.findIndex((caso) => normalizada.includes(`caso ${String(caso.identificadorCaso).toLowerCase()}`));
+      if (casoEncontrado >= 0) {
+        if (normalizada.includes('data fim') || normalizada.includes('datas')) novos[`caso-${casoEncontrado}-dataFim`] = mensagemErro;
+        else if (normalizada.includes('tempo')) novos[`caso-${casoEncontrado}-tempoTotal`] = mensagemErro;
+      }
+      if (Object.keys(novos).length) setErros((prev) => ({ ...prev, ...novos }));
+      setFeedback({ tipo: 'danger', texto: mensagemErro });
     } finally {
       setCarregando(false);
     }
@@ -327,11 +440,15 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
           <article className="card card-pad" style={{ padding: '20px' }}>
             <h2 className="card-title">2. Cadastrar Novo Processo</h2>
             <p className="card-description">Adicione um novo processo para iniciar a linha de base.</p>
+            <div className="form-guidance">
+              Informe o nome do processo e, se disponível, uma descrição e o diagrama BPMN.
+              <strong> Campos marcados com * são obrigatórios.</strong> Após o cadastro, a Ficha AS-IS será aberta automaticamente.
+            </div>
 
             <form onSubmit={handleCadastrarProcesso} style={{ marginTop: '16px' }}>
               <div className="field" style={{ marginBottom: '12px' }}>
-                <label className="label">Nome do Processo</label>
-                <input className="input" placeholder="Ex: Solicitação de Histórico" value={novoProcesso.nome} onChange={(e) => setNovoProcesso({ ...novoProcesso, nome: e.target.value })} required />
+                <label className="label">Nome do Processo<span className="required-mark" aria-hidden="true">*</span></label>
+                <input className="input" autoFocus placeholder="Ex: Solicitação de Histórico" value={novoProcesso.nome} onChange={(e) => setNovoProcesso({ ...novoProcesso, nome: e.target.value })} required aria-required="true" />
               </div>
               <div className="field" style={{ marginBottom: '16px' }}>
                 <label className="label">Descrição (Opcional)</label>
@@ -364,7 +481,7 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
       <header className="page-header" style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <span className="badge badge-primary">Processo Selecionado</span>
-          <h1 className="page-title" style={{ marginTop: '8px' }}>{processoSelecionado?.nome}</h1>
+          <h1 className="page-title" style={{ marginTop: '8px' }}>Ficha AS-IS — {processoSelecionado?.nome}</h1>
           <p className="page-description">{processoSelecionado?.descricao || 'Análise de Linha de Base (AS-IS)'}</p>
         </div>
         
@@ -411,38 +528,64 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
         </div>
       </section>
 
+      <div className="form-guidance">
+        Preencha as informações da linha de base, registre ao menos um caso real e revise a avaliação de satisfação.
+        <strong> Campos marcados com * são obrigatórios.</strong> Use “Salvar Ficha AS-IS” para gravar as alterações; o sistema mantém um rascunho local durante o preenchimento.
+      </div>
+      {indicadorId && (
+        <div className="loaded-values-note">
+          <strong>Valores carregados:</strong> campos com fundo azul vieram da Ficha AS-IS salva. O destaque é removido à medida que os valores são editados.
+        </div>
+      )}
+
+      <nav className="section-jump-nav" aria-label="Atalhos para seções da Ficha AS-IS">
+        <span className="section-jump-label">Ir para:</span>
+        <button type="button" className="section-jump-link" onClick={() => irParaSecao('asis-contexto')}>Contexto e Identificação</button>
+        <button type="button" className="section-jump-link" onClick={() => irParaSecao('asis-amostras')}>Amostras de Casos Reais</button>
+        <button type="button" className="section-jump-link" onClick={() => irParaSecao('asis-satisfacao')}>Avaliação de Satisfação</button>
+      </nav>
+
       <form onSubmit={handleSubmitFicha}>
-        <article className="card card-pad" style={{ padding: '24px', marginBottom: '24px' }}>
+        <article id="asis-contexto" className="card card-pad section-anchor-target" style={{ padding: '24px', marginBottom: '24px' }}>
           <h2 className="card-title">1. Contexto e Identificação</h2>
           <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginTop: '16px' }}>
             <div className="field">
               <label className="label">Nome do Processo</label>
-              <input className="input" value={processoSelecionado?.nome || ''} disabled style={{ background: '#f1f5f9' }} />
+              <textarea className="textarea long-text-control" value={processoSelecionado?.nome || ''} disabled rows={2} aria-label="Nome do processo" />
             </div>
             <div className="field">
-              <label className="label">Setor Responsável</label>
-              <input className="input" value={setorResponsavel} onChange={(e) => setSetorResponsavel(e.target.value)} required />
+              <label className="label">Setor Responsável<span className="required-mark" aria-hidden="true">*</span></label>
+              <input className={`input ${indicadorId && !camposAlterados.setorResponsavel ? 'field-loaded-control' : ''} ${erros.setorResponsavel ? 'input-error' : ''}`} autoFocus aria-required="true" aria-invalid={Boolean(erros.setorResponsavel)} value={setorResponsavel} onChange={(e) => { setSetorResponsavel(e.target.value); marcarAlterado('setorResponsavel'); if (erros.setorResponsavel) setErros((prev) => ({ ...prev, setorResponsavel: '' })); }} onBlur={() => { if (!setorResponsavel.trim()) setErros((prev) => ({ ...prev, setorResponsavel: 'Informe o setor responsável.' })); }} required />
+              {!indicadorId && !camposAlterados.setorResponsavel && <span className="field-state-hint">Valor padrão: CRPA / PROGRAD</span>}
+              {indicadorId && !camposAlterados.setorResponsavel && <span className="field-state-hint">Valor carregado da ficha salva</span>}
+              {erros.setorResponsavel && <span className="field-error">{erros.setorResponsavel}</span>}
             </div>
             <div className="field">
-              <label className="label">Data da Medição</label>
-              <input type="date" className="input" value={dataMedicao} onChange={(e) => setDataMedicao(e.target.value)} required />
+              <label className="label">Data da Medição<span className="required-mark" aria-hidden="true">*</span></label>
+              <input type="date" className={`input ${indicadorId && !camposAlterados.dataMedicao ? 'field-loaded-control' : ''} ${erros.dataMedicao ? 'input-error' : ''}`} aria-required="true" aria-invalid={Boolean(erros.dataMedicao)} value={dataMedicao} onChange={(e) => { setDataMedicao(e.target.value); marcarAlterado('dataMedicao'); if (erros.dataMedicao) setErros((prev) => ({ ...prev, dataMedicao: '' })); }} onBlur={() => { if (!dataMedicao) setErros((prev) => ({ ...prev, dataMedicao: 'Informe a data da medição.' })); }} required />
+              {indicadorId && !camposAlterados.dataMedicao && <span className="field-state-hint">Valor carregado da ficha salva</span>}
+              {erros.dataMedicao && <span className="field-error">{erros.dataMedicao}</span>}
             </div>
             <div className="field">
-              <label className="label">Responsável pela Análise</label>
-              <input className="input" placeholder="Nome do analista" value={responsavelAnalise} onChange={(e) => setResponsavelAnalise(e.target.value)} required />
+              <label className="label">Responsável pela Análise<span className="required-mark" aria-hidden="true">*</span></label>
+              <input className={`input ${indicadorId && !camposAlterados.responsavelAnalise ? 'field-loaded-control' : ''} ${erros.responsavelAnalise ? 'input-error' : ''}`} aria-required="true" aria-invalid={Boolean(erros.responsavelAnalise)} placeholder="Nome do analista" value={responsavelAnalise} onChange={(e) => { setResponsavelAnalise(e.target.value); marcarAlterado('responsavelAnalise'); if (erros.responsavelAnalise) setErros((prev) => ({ ...prev, responsavelAnalise: '' })); }} onBlur={() => { if (!responsavelAnalise.trim()) setErros((prev) => ({ ...prev, responsavelAnalise: 'Informe o responsável pela análise.' })); }} required />
+              {indicadorId && !camposAlterados.responsavelAnalise && <span className="field-state-hint">Valor carregado da ficha salva</span>}
+              {erros.responsavelAnalise && <span className="field-error">{erros.responsavelAnalise}</span>}
             </div>
             <div className="field" style={{ gridColumn: 'span 2' }}>
               <label className="label">Motivo da Priorização</label>
-              <select className="select" value={motivoPriorizacao} onChange={(e) => setMotivoPriorizacao(e.target.value)}>
+              <select className={`select ${indicadorId && !camposAlterados.motivoPriorizacao ? 'field-loaded-control' : ''}`} value={motivoPriorizacao} onChange={(e) => { setMotivoPriorizacao(e.target.value); marcarAlterado('motivoPriorizacao'); }}>
                 <option value="Falta de Padronização">Falta de Padronização</option>
                 <option value="Baixa Tecnologia">Baixa Tecnologia</option>
                 <option value="Alta Complexidade">Alta Complexidade</option>
               </select>
+              {!indicadorId && !camposAlterados.motivoPriorizacao && <span className="field-state-hint">Valor padrão: Falta de Padronização</span>}
+              {indicadorId && !camposAlterados.motivoPriorizacao && <span className="field-state-hint">Valor carregado da ficha salva</span>}
             </div>
           </div>
         </article>
 
-        <article className="card card-pad" style={{ padding: '24px', marginBottom: '24px' }}>
+        <article id="asis-amostras" className="card card-pad section-anchor-target" style={{ padding: '24px', marginBottom: '24px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <h2 className="card-title">2. Amostras de Casos Reais (N = {kpisCalculados.N})</h2>
@@ -450,31 +593,26 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
             </div>
             <button type="button" className="btn btn-secondary" onClick={adicionarCaso}>+ Adicionar Caso</button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginTop: '16px', marginBottom: '16px' }}>
-            <div className="field">
-              <label className="label">Data Início Amostra</label>
-              <input type="date" className="input" value={dataInicioAmostra} onChange={(e) => setDataInicioAmostra(e.target.value)} />
-            </div>
-            <div className="field">
-              <label className="label">Data Fim Amostra</label>
-              <input type="date" className="input" value={dataFimAmostra} onChange={(e) => setDataFimAmostra(e.target.value)} />
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px', marginTop: '16px', marginBottom: '16px', maxWidth: '420px' }}>
             <div className="field">
               <label className="label">Unidade de Tempo</label>
-              <select className="select" value={unidadeTmc} onChange={(e) => setUnidadeTmc(e.target.value)}>
+              <select className={`select ${indicadorId && !camposAlterados.unidadeTmc ? 'field-loaded-control' : ''}`} value={unidadeTmc} onChange={(e) => { setUnidadeTmc(e.target.value); marcarAlterado('unidadeTmc'); }}>
                 <option value="DIAS">Dias Úteis</option>
                 <option value="HORAS">Horas</option>
               </select>
+              <span className="field-help">Defina a unidade antes de informar o tempo dos casos.</span>
+              {!indicadorId && !camposAlterados.unidadeTmc && <span className="field-state-hint">Valor padrão: Dias Úteis</span>}
+              {indicadorId && !camposAlterados.unidadeTmc && <span className="field-state-hint">Valor carregado da ficha salva</span>}
             </div>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '12px' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                  <th style={{ padding: '8px' }}>ID Caso</th>
-                  <th style={{ padding: '8px' }}>Data Início</th>
-                  <th style={{ padding: '8px' }}>Data Fim</th>
-                  <th style={{ padding: '8px' }}>Tempo ({unidadeTmc})</th>
+                  <th style={{ padding: '8px' }}>ID Caso <span className="required-mark" aria-hidden="true">*</span></th>
+                  <th style={{ padding: '8px' }}>Data Início <span className="required-mark" aria-hidden="true">*</span></th>
+                  <th style={{ padding: '8px' }}>Data Fim <span className="required-mark" aria-hidden="true">*</span></th>
+                  <th style={{ padding: '8px' }}>Tempo ({unidadeTmc}) <span className="required-mark" aria-hidden="true">*</span><span className="table-header-help">valor mínimo: 0</span></th>
                   <th style={{ padding: '8px' }}>Retrabalho?</th>
                   <th style={{ padding: '8px' }}>Observação</th>
                   <th style={{ padding: '8px' }}>Ação</th>
@@ -483,26 +621,40 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
               <tbody>
                 {casos.map((caso, index) => (
                   <tr key={index} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                    <td style={{ padding: '8px' }}><input className="input" style={{ width: '60px' }} value={caso.identificadorCaso} onChange={(e) => atualizarCaso(index, 'identificadorCaso', e.target.value)} required /></td>
-                    <td style={{ padding: '8px' }}><input type="date" className="input" value={caso.dataInicio} onChange={(e) => atualizarCaso(index, 'dataInicio', e.target.value)} required /></td>
-                    <td style={{ padding: '8px' }}><input type="date" className="input" value={caso.dataFim} onChange={(e) => atualizarCaso(index, 'dataFim', e.target.value)} required /></td>
-                    <td style={{ padding: '8px' }}><input type="number" step="0.1" min="0" className="input" style={{ width: '80px' }} value={caso.tempoTotal} onChange={(e) => atualizarCaso(index, 'tempoTotal', e.target.value)} required /></td>
+                    <td style={{ padding: '8px' }}><input className={`input ${indicadorId && !camposAlterados[`caso-${index}-identificadorCaso`] ? 'field-loaded-control' : ''} ${erros[`caso-${index}-identificadorCaso`] ? 'input-error' : ''}`} style={{ width: '72px' }} value={caso.identificadorCaso} onChange={(e) => atualizarCaso(index, 'identificadorCaso', e.target.value)} onBlur={() => validarCasoCampo(index, 'identificadorCaso')} required aria-required="true" />{erros[`caso-${index}-identificadorCaso`] && <span className="field-error">{erros[`caso-${index}-identificadorCaso`]}</span>}</td>
+                    <td style={{ padding: '8px' }}><input type="date" className={`input ${indicadorId && !camposAlterados[`caso-${index}-dataInicio`] ? 'field-loaded-control' : ''} ${erros[`caso-${index}-dataInicio`] ? 'input-error' : ''}`} value={caso.dataInicio} onChange={(e) => atualizarCaso(index, 'dataInicio', e.target.value)} onBlur={() => validarCasoCampo(index, 'dataInicio')} required aria-required="true" />{erros[`caso-${index}-dataInicio`] && <span className="field-error">{erros[`caso-${index}-dataInicio`]}</span>}</td>
+                    <td style={{ padding: '8px' }}><input type="date" className={`input ${indicadorId && !camposAlterados[`caso-${index}-dataFim`] ? 'field-loaded-control' : ''} ${erros[`caso-${index}-dataFim`] ? 'input-error' : ''}`} value={caso.dataFim} onChange={(e) => atualizarCaso(index, 'dataFim', e.target.value)} onBlur={() => validarCasoCampo(index, 'dataFim')} required aria-required="true" />{erros[`caso-${index}-dataFim`] && <span className="field-error">{erros[`caso-${index}-dataFim`]}</span>}</td>
+                    <td style={{ padding: '8px' }}><input type="number" step="0.1" min="0" className={`input ${indicadorId && !camposAlterados[`caso-${index}-tempoTotal`] ? 'field-loaded-control' : ''} ${erros[`caso-${index}-tempoTotal`] ? 'input-error' : ''}`} style={{ width: '90px' }} value={caso.tempoTotal} onChange={(e) => atualizarCaso(index, 'tempoTotal', e.target.value)} onBlur={() => validarCasoCampo(index, 'tempoTotal')} required aria-required="true" />{erros[`caso-${index}-tempoTotal`] && <span className="field-error">{erros[`caso-${index}-tempoTotal`]}</span>}</td>
                     <td style={{ padding: '8px' }}>
-                      <select className="select" value={caso.houveRetrabalho ? 'Sim' : 'Não'} onChange={(e) => atualizarCaso(index, 'houveRetrabalho', e.target.value === 'Sim')}>
+                      <select className={`select ${indicadorId && !camposAlterados[`caso-${index}-houveRetrabalho`] ? 'field-loaded-control' : ''}`} value={caso.houveRetrabalho ? 'Sim' : 'Não'} onChange={(e) => atualizarCaso(index, 'houveRetrabalho', e.target.value === 'Sim')}>
                         <option value="Não">Não</option>
                         <option value="Sim">Sim</option>
                       </select>
                     </td>
-                    <td style={{ padding: '8px' }}><input className="input" placeholder="Motivo de atraso/erro..." value={caso.observacao || ''} onChange={(e) => atualizarCaso(index, 'observacao', e.target.value)} /></td>
+                    <td style={{ padding: '8px', minWidth: '240px' }}><textarea className={`textarea long-text-control ${indicadorId && !camposAlterados[`caso-${index}-observacao`] ? 'field-loaded-control' : ''}`} rows={2} placeholder="Descreva o motivo de atraso/erro, se houver..." value={caso.observacao || ''} onChange={(e) => atualizarCaso(index, 'observacao', e.target.value)} /></td>
                     <td style={{ padding: '8px' }}><button type="button" onClick={() => removerCaso(index)} style={{ background: '#ef4444', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}>Excluir</button></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
+            <div className="field">
+              <label className="label">Data Início Amostra <span className="field-help">(opcional)</span></label>
+              <input type="date" className={`input ${indicadorId && !camposAlterados.dataInicioAmostra ? 'field-loaded-control' : ''} ${erros.dataInicioAmostra ? 'input-error' : ''}`} value={dataInicioAmostra} onChange={(e) => { setDataInicioAmostra(e.target.value); marcarAlterado('dataInicioAmostra'); if (erros.dataInicioAmostra) setErros((prev) => ({ ...prev, dataInicioAmostra: '' })); }} onBlur={validarPeriodoAmostra} />
+              {indicadorId && !camposAlterados.dataInicioAmostra && <span className="field-state-hint">Valor carregado da ficha salva</span>}
+              {erros.dataInicioAmostra && <span className="field-error">{erros.dataInicioAmostra}</span>}
+            </div>
+            <div className="field">
+              <label className="label">Data Fim Amostra <span className="field-help">(opcional)</span></label>
+              <input type="date" className={`input ${indicadorId && !camposAlterados.dataFimAmostra ? 'field-loaded-control' : ''} ${erros.dataFimAmostra ? 'input-error' : ''}`} value={dataFimAmostra} onChange={(e) => { setDataFimAmostra(e.target.value); marcarAlterado('dataFimAmostra'); if (erros.dataFimAmostra) setErros((prev) => ({ ...prev, dataFimAmostra: '' })); }} onBlur={validarPeriodoAmostra} />
+              {indicadorId && !camposAlterados.dataFimAmostra && <span className="field-state-hint">Valor carregado da ficha salva</span>}
+              {erros.dataFimAmostra && <span className="field-error">{erros.dataFimAmostra}</span>}
+            </div>
+          </div>
         </article>
 
-        <article className="card card-pad" style={{ padding: '24px', marginBottom: '24px' }}>
+        <article id="asis-satisfacao" className="card card-pad section-anchor-target" style={{ padding: '24px', marginBottom: '24px' }}>
           <h2 className="card-title">3. Avaliação de Satisfação (Enquete)</h2>
           <p className="card-description">Atribua notas na escala Likert de 1 (Péssimo/Confuso) a 5 (Muito Satisfeito/Claro).</p>
           <div style={{ marginTop: '20px' }}>
@@ -511,7 +663,7 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
               <div style={{ display: 'flex', gap: '16px' }}>
                 {[1, 2, 3, 4, 5].map((nota) => (
                   <label key={nota} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                    <input type="radio" name="notaAgilidade" value={nota} checked={Number(notaAgilidade) === nota} onChange={() => setNotaAgilidade(nota)} />
+                    <input type="radio" name="notaAgilidade" value={nota} checked={Number(notaAgilidade) === nota} onChange={() => { setNotaAgilidade(nota); marcarAlterado('notaAgilidade'); }} />
                     {nota} {nota === 1 ? '(Muito Insatisfeito)' : nota === 5 ? '(Muito Satisfeito)' : ''}
                   </label>
                 ))}
@@ -523,7 +675,7 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
               <div style={{ display: 'flex', gap: '16px' }}>
                 {[1, 2, 3, 4, 5].map((nota) => (
                   <label key={nota} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                    <input type="radio" name="notaClareza" value={nota} checked={Number(notaClareza) === nota} onChange={() => setNotaClareza(nota)} />
+                    <input type="radio" name="notaClareza" value={nota} checked={Number(notaClareza) === nota} onChange={() => { setNotaClareza(nota); marcarAlterado('notaClareza'); }} />
                     {nota} {nota === 1 ? '(Muito Confuso)' : nota === 5 ? '(Muito Claro)' : ''}
                   </label>
                 ))}
@@ -532,7 +684,10 @@ export const FichaAsIs = ({ cicloAvaliacaoId = 1 }) => {
           </div>
         </article>
 
-        <div style={{ textAlign: 'right' }}>
+        <div className="actions-row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-secondary" onClick={descartarAlteracoesFicha} disabled={carregando || !possuiAlteracoes}>
+            {indicadorId ? 'Descartar alterações' : 'Limpar ficha'}
+          </button>
           <button type="submit" className="btn btn-primary" disabled={carregando} style={{ padding: '12px 24px', fontSize: '1rem' }}>
             {carregando ? 'Salvando...' : 'Salvar Ficha AS-IS'}
           </button>
